@@ -128,6 +128,9 @@ class OrderService {
     const skip = (page - 1) * pageSize;
     const [orders, totalCount] = await Promise.all([
       this.db.order.findMany({
+        where: {
+          userId: userId,
+        },
         orderBy: { createdAt: "desc" },
         skip,
         take: pageSize,
