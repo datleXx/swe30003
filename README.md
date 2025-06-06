@@ -1,4 +1,12 @@
-# Create T3 App
+# Set up steps
+
+1. load the .env file
+2. have docker installed 
+3. chmod +x ./start-database.sh 
+4. npm install 
+5. npm run db:migrate
+5. npx tsc prisma/seed.ts to populate the db
+
 
 This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
 

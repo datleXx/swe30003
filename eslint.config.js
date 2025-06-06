@@ -26,6 +26,7 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-enum-comparison": "off",
       "@typescript-eslint/array-type": "off",
+      "@typescript-eslint/prefer-nullish-coalescing": "off",
       "@typescript-eslint/consistent-type-definitions": "off",
       "@typescript-eslint/no-redundant-type-constituents": "off",
       "@typescript-eslint/consistent-type-imports": [

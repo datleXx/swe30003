@@ -4,6 +4,168 @@ import {
   publicProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+
+class ProductService {
+  constructor(private readonly db: any) {}
+
+  async getPaginated(page: number, pageSize: number) {
+    const skip = (page - 1) * pageSize;
+    const [products, total] = await Promise.all([
+      this.db.product.findMany({
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: "desc" },
+        include: {
+          category: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      }),
+      this.db.product.count(),
+    ]);
+
+    return {
+      products,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  async create(
+    name: string,
+    description: string,
+    price: number,
+    quantity: number,
+    brand: string,
+    image: string,
+    categoryId: string,
+    userId: string,
+  ) {
+    // Only allow admins
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (user?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    return this.db.product.create({
+      data: {
+        name,
+        description,
+        price,
+        quantity,
+        brand,
+        image,
+        categoryId,
+      },
+    });
+  }
+
+  async getCategories() {
+    return this.db.category.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+  }
+
+  async update(
+    id: string,
+    name: string,
+    description: string,
+    price: number,
+    quantity: number,
+    brand: string,
+    image: string,
+    categoryId: string,
+    userId: string,
+  ) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (user?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    return this.db.product.update({
+      where: { id },
+      data: {
+        name,
+        description,
+        price,
+        quantity,
+        brand,
+        image,
+        categoryId,
+      },
+    });
+  }
+
+  async delete(id: string, userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (user?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    await this.db.product.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async getById(id: string, userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (user?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const product = await this.db.product.findUnique({
+      where: { id },
+      include: {
+        category: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Product not found",
+      });
+    }
+
+    return product;
+  }
+}
+
+// Create a singleton instance
+let productServiceInstance: ProductService | null = null;
 
 export const productRouter = createTRPCRouter({
   getPaginated: publicProcedure
@@ -14,30 +176,10 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const skip = (input.page - 1) * input.pageSize;
-      const [products, total] = await Promise.all([
-        ctx.db.product.findMany({
-          skip,
-          take: input.pageSize,
-          orderBy: { createdAt: "desc" },
-          include: {
-            category: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        }),
-        ctx.db.product.count(),
-      ]);
-      return {
-        products,
-        total,
-        page: input.page,
-        pageSize: input.pageSize,
-        totalPages: Math.ceil(total / input.pageSize),
-      };
+      productServiceInstance ??= new ProductService(ctx.db);
+      return productServiceInstance.getPaginated(input.page, input.pageSize);
     }),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -51,31 +193,24 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Only allow admins
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      if (user?.role !== "admin") {
-        throw new Error("Unauthorized");
-      }
-      return ctx.db.product.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          price: input.price,
-          quantity: input.quantity,
-          brand: input.brand,
-          image: input.image,
-          categoryId: input.categoryId,
-        },
-      });
+      productServiceInstance ??= new ProductService(ctx.db);
+      return productServiceInstance.create(
+        input.name,
+        input.description,
+        input.price,
+        input.quantity,
+        input.brand,
+        input.image,
+        input.categoryId,
+        ctx.session.user.id,
+      );
     }),
+
   getCategories: publicProcedure.query(async ({ ctx }) => {
-    return ctx.db.category.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    });
+    productServiceInstance ??= new ProductService(ctx.db);
+    return productServiceInstance.getCategories();
   }),
+
   update: protectedProcedure
     .input(
       z.object({
@@ -90,52 +225,31 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      if (user?.role !== "admin") throw new Error("Unauthorized");
-      return ctx.db.product.update({
-        where: { id: input.id },
-        data: {
-          name: input.name,
-          description: input.description,
-          price: input.price,
-          quantity: input.quantity,
-          brand: input.brand,
-          image: input.image,
-          categoryId: input.categoryId,
-        },
-      });
+      productServiceInstance ??= new ProductService(ctx.db);
+      return productServiceInstance.update(
+        input.id,
+        input.name,
+        input.description,
+        input.price,
+        input.quantity,
+        input.brand,
+        input.image,
+        input.categoryId,
+        ctx.session.user.id,
+      );
     }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      if (user?.role !== "admin") throw new Error("Unauthorized");
-      await ctx.db.product.delete({ where: { id: input.id } });
-      return { success: true };
+      productServiceInstance ??= new ProductService(ctx.db);
+      return productServiceInstance.delete(input.id, ctx.session.user.id);
     }),
+
   getById: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      console.log("user", user);
-      if (user?.role !== "admin") throw new Error("Unauthorized");
-      const product = await ctx.db.product.findUnique({
-        where: { id: input.id },
-        include: {
-          category: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      });
-      if (!product) throw new Error("Product not found");
-      return product;
+      productServiceInstance ??= new ProductService(ctx.db);
+      return productServiceInstance.getById(input.id, ctx.session.user.id);
     }),
 });

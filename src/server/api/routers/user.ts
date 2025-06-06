@@ -1,5 +1,97 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+
+class UserService {
+  constructor(private readonly db: any) {}
+
+  async getPaginated(page: number, pageSize: number, userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (user?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const skip = (page - 1) * pageSize;
+    const [users, totalCount] = await Promise.all([
+      this.db.user.findMany({
+        skip,
+        take: pageSize,
+        include: {
+          _count: { select: { orders: true } },
+        },
+      }),
+      this.db.user.count(),
+    ]);
+
+    return {
+      users,
+      totalCount,
+      totalPages: Math.ceil(totalCount / pageSize),
+    };
+  }
+
+  async getById(id: string, userId: string) {
+    const admin = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (admin?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const user = await this.db.user.findUnique({
+      where: { id },
+      include: {
+        orders: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            items: { include: { product: true } },
+          },
+        },
+        addresses: true,
+      },
+    });
+
+    if (!user) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "User not found",
+      });
+    }
+
+    return user;
+  }
+
+  async updateRole(id: string, role: string, userId: string) {
+    const admin = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (admin?.role !== "admin") {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    return this.db.user.update({
+      where: { id },
+      data: { role },
+    });
+  }
+}
+
+// Create a singleton instance
+let userServiceInstance: UserService | null = null;
 
 export const userRouter = createTRPCRouter({
   getPaginated: protectedProcedure
@@ -10,60 +102,29 @@ export const userRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      console.log(user);
-      if (user?.role !== "admin") throw new Error("Unauthorized");
-      const skip = (input.page - 1) * input.pageSize;
-      const [users, totalCount] = await Promise.all([
-        ctx.db.user.findMany({
-          skip,
-          take: input.pageSize,
-          include: {
-            _count: { select: { orders: true } },
-          },
-        }),
-        ctx.db.user.count(),
-      ]);
-      return {
-        users,
-        totalCount,
-        totalPages: Math.ceil(totalCount / input.pageSize),
-      };
+      userServiceInstance ??= new UserService(ctx.db);
+      return userServiceInstance.getPaginated(
+        input.page,
+        input.pageSize,
+        ctx.session.user.id,
+      );
     }),
+
   getById: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const admin = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      if (admin?.role !== "admin") throw new Error("Unauthorized");
-      const user = await ctx.db.user.findUnique({
-        where: { id: input.id },
-        include: {
-          orders: {
-            orderBy: { createdAt: "desc" },
-            include: {
-              items: { include: { product: true } },
-            },
-          },
-          addresses: true,
-        },
-      });
-      if (!user) throw new Error("User not found");
-      return user;
+      userServiceInstance ??= new UserService(ctx.db);
+      return userServiceInstance.getById(input.id, ctx.session.user.id);
     }),
+
   updateRole: protectedProcedure
     .input(z.object({ id: z.string().min(1), role: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const admin = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
-      });
-      if (admin?.role !== "admin") throw new Error("Unauthorized");
-      return ctx.db.user.update({
-        where: { id: input.id },
-        data: { role: input.role },
-      });
+      userServiceInstance ??= new UserService(ctx.db);
+      return userServiceInstance.updateRole(
+        input.id,
+        input.role,
+        ctx.session.user.id,
+      );
     }),
 });
