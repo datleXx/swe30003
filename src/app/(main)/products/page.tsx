@@ -143,10 +143,7 @@ export default function ProductsPage() {
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent
-            side="right"
-            className="max-w-2xl overflow-y-auto px-2 py-4"
-          >
+          <SheetContent side="right" className="min-w-1/3 overflow-y-auto px-2 py-4">
             <SheetTitle className="text-2xl font-bold">Your Cart</SheetTitle>
             {cartLoading ? (
               <div className="text-muted-foreground py-8 text-center">
@@ -157,14 +154,14 @@ export default function ProductsPage() {
                 Your cart is empty.
               </div>
             ) : (
-              <div className="flex h-full max-w-full flex-col gap-6">
+              <div className="flex h-full flex-col gap-6">
                 <div className="mx-auto flex-1 space-y-2 overflow-y-auto">
                   {cart.items.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center gap-4 rounded-lg border p-4 shadow-sm"
+                      className="flex max-w-full items-center gap-4 rounded-lg border p-4 shadow-sm"
                     >
-                      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded bg-gray-100">
+                      <div className="h-20 w-20">
                         <img
                           src={item.product.image ?? ""}
                           alt={item.product.name}
@@ -172,10 +169,10 @@ export default function ProductsPage() {
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-base font-semibold">
+                        <div className="max-w-xs truncate overflow-hidden text-base font-semibold whitespace-nowrap">
                           {item.product.name}
                         </div>
-                        <div className="text-muted-foreground truncate text-sm">
+                        <div className="text-muted-foreground max-w-xs truncate overflow-hidden text-sm whitespace-nowrap">
                           {item.product.brand}
                         </div>
                         <div className="mt-1 text-sm font-light">

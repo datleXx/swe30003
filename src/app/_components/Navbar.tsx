@@ -1,6 +1,13 @@
 "use client";
 import { Button } from "~/components/ui/button";
-import { LogIn, LogOut, User, ShoppingCart, ListOrdered } from "lucide-react";
+import {
+  LogIn,
+  LogOut,
+  User,
+  ShoppingCart,
+  ListOrdered,
+  BarChart3,
+} from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import Link from "next/link";
 import { Badge } from "~/components/ui/badge";
@@ -10,7 +17,12 @@ import { useRouter } from "next/navigation";
 export function Navbar() {
   const { data: session, status } = useSession();
   const user = session?.user;
-  console.log(user);
+  const { data: userData } = api.user.getById.useQuery(
+    { id: user?.id ?? "" },
+    {
+      enabled: !!user,
+    },
+  );
   const { data: cartItemCount = 0 } = api.cart.getItemCount.useQuery(
     undefined,
     {
@@ -22,7 +34,7 @@ export function Navbar() {
     <nav className="flex w-full items-center justify-between border-b bg-white px-4 py-3 md:px-6 md:py-4">
       <span
         className="cursor-pointer text-lg font-bold tracking-tight"
-        onClick={() => router.push("/")}
+        onClick={() => router.push("/products")}
       >
         ElectroStore
       </span>
@@ -46,6 +58,31 @@ export function Navbar() {
             <span className="sr-only">My Orders</span>
           </Button>
         </Link>
+        {userData?.role === "admin" && (
+          <>
+            <Link href="/admin/products">
+              <Button variant="ghost" size="sm">
+                Admin Products
+              </Button>
+            </Link>
+            <Link href="/admin/orders">
+              <Button variant="ghost" size="sm">
+                Admin Orders
+              </Button>
+            </Link>
+            <Link href="/admin/users">
+              <Button variant="ghost" size="sm">
+                Admin Users
+              </Button>
+            </Link>
+            <Link href="/admin/reports">
+              <Button variant="ghost" size="sm" className="gap-1">
+                <BarChart3 className="h-4 w-4" />
+                Reports
+              </Button>
+            </Link>
+          </>
+        )}
         {status === "loading" ? null : user ? (
           <div className="flex items-center gap-2 md:gap-3">
             <span className="hidden items-center gap-2 text-sm text-gray-700 md:flex">
