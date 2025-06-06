@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { CampaignStatus, CampaignType } from "@prisma/client";
 
@@ -401,7 +401,7 @@ export const campaignRouter = createTRPCRouter({
       return campaignService.updateStatus(ctx, input.id, input.status);
     }),
 
-  getActiveCampaigns: protectedProcedure.query(async ({ ctx }) => {
+  getActiveCampaigns: publicProcedure.query(async ({ ctx }) => {
     return campaignService.getActiveCampaigns(ctx);
   }),
 });
