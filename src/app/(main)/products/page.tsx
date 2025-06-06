@@ -23,12 +23,14 @@ import { Badge } from "~/components/ui/badge";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { CampaignType } from "@prisma/client";
 
 const PAGE_SIZE = 6;
 
 type Product = RouterOutputs["product"]["getPaginated"]["products"][number];
 type Cart = RouterOutputs["cart"]["getCart"];
 type CartItem = Cart["items"][number];
+type Campaign = RouterOutputs["campaign"]["getActiveCampaigns"][number];
 
 export default function ProductsPage() {
   const [page, setPage] = useState(1);
@@ -42,6 +44,7 @@ export default function ProductsPage() {
     page,
     pageSize: PAGE_SIZE,
   });
+  const { data: activeCampaigns } = api.campaign.getActiveCampaigns.useQuery();
   const router = useRouter();
 
   // Get cart item count
@@ -113,9 +116,90 @@ export default function ProductsPage() {
 
   const subtotal =
     cart?.items.reduce(
-      (sum, item) => sum + Number(item.product.price) * item.quantity,
+      (sum: number, item: CartItem) =>
+        sum + Number(item.product.price) * item.quantity,
       0,
     ) ?? 0;
+
+  // Function to calculate discounted price based on campaign type
+  const calculateDiscountedPrice = (
+    product: Product,
+    campaigns: Campaign[],
+  ) => {
+    const applicableCampaigns = campaigns.filter((campaign) => {
+      if (campaign.applyToAllProducts) return true;
+      if (campaign.products.some((p: { id: string }) => p.id === product.id))
+        return true;
+      if (
+        campaign.categories.some(
+          (c: { id: string }) => c.id === product.categoryId,
+        )
+      )
+        return true;
+      return false;
+    });
+
+    if (applicableCampaigns.length === 0) return null;
+
+    // For simplicity, we'll apply the first applicable campaign
+    const campaign = applicableCampaigns[0];
+    const originalPrice = Number(product.price);
+
+    switch (campaign.type) {
+      case CampaignType.PERCENTAGE_DISCOUNT:
+        const discountAmount = originalPrice * (campaign.discountValue! / 100);
+        const maxDiscount = campaign.maximumDiscountAmount || Infinity;
+        return originalPrice - Math.min(discountAmount, maxDiscount);
+      case CampaignType.FIXED_AMOUNT_DISCOUNT:
+        return originalPrice - campaign.discountValue!;
+      case CampaignType.FLAT_PRICE:
+        return campaign.flatPrice!;
+      case CampaignType.BUY_ONE_GET_ONE:
+        // For BOGO, we'll show the original price but indicate the promotion
+        return originalPrice;
+      case CampaignType.FREE_SHIPPING:
+        // Free shipping doesn't affect product price
+        return originalPrice;
+      default:
+        return originalPrice;
+    }
+  };
+
+  // Function to get campaign badge text
+  const getCampaignBadgeText = (campaign: Campaign) => {
+    switch (campaign.type) {
+      case CampaignType.PERCENTAGE_DISCOUNT:
+        return `${campaign.discountValue}% OFF`;
+      case CampaignType.FIXED_AMOUNT_DISCOUNT:
+        return `$${campaign.discountValue} OFF`;
+      case CampaignType.BUY_ONE_GET_ONE:
+        return `BOGO: Buy ${campaign.buyQuantity} Get ${campaign.getQuantity}`;
+      case CampaignType.FREE_SHIPPING:
+        return "FREE SHIPPING";
+      case CampaignType.FLAT_PRICE:
+        return `FLAT PRICE: $${campaign.flatPrice}`;
+      default:
+        return "SPECIAL OFFER";
+    }
+  };
+
+  // Function to get campaign badge variant
+  const getCampaignBadgeVariant = (campaign: Campaign) => {
+    switch (campaign.type) {
+      case CampaignType.PERCENTAGE_DISCOUNT:
+        return "destructive"; // Red badge for percentage discounts
+      case CampaignType.FIXED_AMOUNT_DISCOUNT:
+        return "secondary";
+      case CampaignType.BUY_ONE_GET_ONE:
+        return "secondary";
+      case CampaignType.FREE_SHIPPING:
+        return "secondary";
+      case CampaignType.FLAT_PRICE:
+        return "secondary";
+      default:
+        return "secondary";
+    }
+  };
 
   if (isLoading) return <div className="py-12 text-center">Loading...</div>;
   if (!data) return <div className="py-12 text-center">No products found.</div>;
@@ -143,7 +227,10 @@ export default function ProductsPage() {
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="min-w-1/3 overflow-y-auto px-2 py-4">
+          <SheetContent
+            side="right"
+            className="min-w-1/3 overflow-y-auto px-2 py-4"
+          >
             <SheetTitle className="text-2xl font-bold">Your Cart</SheetTitle>
             {cartLoading ? (
               <div className="text-muted-foreground py-8 text-center">
@@ -156,7 +243,7 @@ export default function ProductsPage() {
             ) : (
               <div className="flex h-full flex-col gap-6">
                 <div className="mx-auto flex-1 space-y-2 overflow-y-auto">
-                  {cart.items.map((item) => (
+                  {cart.items.map((item: CartItem) => (
                     <div
                       key={item.id}
                       className="flex max-w-full items-center gap-4 rounded-lg border p-4 shadow-sm"
@@ -240,40 +327,90 @@ export default function ProductsPage() {
         </Sheet>
       </div>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
-        {data.products.map((product) => (
-          <div key={product.id}>
-            <Card
-              className="hov flex cursor-pointer flex-col"
-              onClick={() => {
-                setSelectedProduct(product);
-                setSheetOpen(true);
-              }}
-            >
-              <img
-                src={product.image ?? ""}
-                alt={product.name}
-                className="h-20 w-full rounded-t object-cover"
-              />
-              <CardContent className="flex flex-1 flex-col justify-between p-4">
-                <div>
-                  <TypographyP className="mb-2 text-lg font-semibold">
-                    {product.name}
-                  </TypographyP>
-                  <TypographyP className="mb-4 text-gray-500">
-                    ${Number(product.price).toFixed(2)}
-                  </TypographyP>
-                </div>
-                <Button
-                  className="mt-auto w-full gap-2"
-                  variant="default"
-                  onClick={(e) => handleAddToCart(product.id, e)}
-                >
-                  <ShoppingCart className="h-4 w-4" /> Add to Cart
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        ))}
+        {data.products.map((product: Product) => {
+          const discountedPrice = activeCampaigns
+            ? calculateDiscountedPrice(product, activeCampaigns)
+            : null;
+
+          const applicableCampaigns =
+            activeCampaigns?.filter((campaign: Campaign) => {
+              if (campaign.applyToAllProducts) return true;
+              if (
+                campaign.products.some(
+                  (p: { id: string }) => p.id === product.id,
+                )
+              )
+                return true;
+              if (
+                campaign.categories.some(
+                  (c: { id: string }) => c.id === product.categoryId,
+                )
+              )
+                return true;
+              return false;
+            }) || [];
+
+          return (
+            <div key={product.id}>
+              <Card
+                className="hov flex cursor-pointer flex-col"
+                onClick={() => {
+                  setSelectedProduct(product);
+                  setSheetOpen(true);
+                }}
+              >
+                <img
+                  src={product.image ?? ""}
+                  alt={product.name}
+                  className="h-20 w-full rounded-t object-cover"
+                />
+                <CardContent className="flex flex-1 flex-col justify-between p-4">
+                  <div>
+                    <TypographyP className="mb-2 text-lg font-semibold">
+                      {product.name}
+                    </TypographyP>
+                    <div className="mb-2">
+                      {discountedPrice ? (
+                        <div className="flex items-center gap-2">
+                          <TypographyP className="text-gray-500 line-through">
+                            ${Number(product.price).toFixed(2)}
+                          </TypographyP>
+                          <TypographyP className="font-bold text-red-600">
+                            ${discountedPrice.toFixed(2)}
+                          </TypographyP>
+                        </div>
+                      ) : (
+                        <TypographyP className="text-gray-500">
+                          ${Number(product.price).toFixed(2)}
+                        </TypographyP>
+                      )}
+                    </div>
+                    {applicableCampaigns.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {applicableCampaigns.map((campaign: Campaign) => (
+                          <Badge
+                            key={campaign.id}
+                            variant={getCampaignBadgeVariant(campaign)}
+                            className="text-xs"
+                          >
+                            {getCampaignBadgeText(campaign)}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    className="mt-auto w-full gap-2"
+                    variant="default"
+                    onClick={(e) => handleAddToCart(product.id, e)}
+                  >
+                    <ShoppingCart className="h-4 w-4" /> Add to Cart
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })}
       </div>
       <div className="mt-8 flex justify-center">
         <Pagination>
@@ -327,9 +464,25 @@ export default function ProductsPage() {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <p className="text-2xl font-bold">
-                    ${Number(selectedProduct.price).toFixed(2)}
-                  </p>
+                  {activeCampaigns &&
+                  calculateDiscountedPrice(selectedProduct, activeCampaigns) ? (
+                    <div className="flex items-center gap-2">
+                      <p className="text-gray-500 line-through">
+                        ${Number(selectedProduct.price).toFixed(2)}
+                      </p>
+                      <p className="text-2xl font-bold text-red-600">
+                        $
+                        {calculateDiscountedPrice(
+                          selectedProduct,
+                          activeCampaigns,
+                        )!.toFixed(2)}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-2xl font-bold">
+                      ${Number(selectedProduct.price).toFixed(2)}
+                    </p>
+                  )}
                   <p className="text-muted-foreground text-sm">
                     {selectedProduct.quantity > 0 ? (
                       <span className="text-green-600">
@@ -340,6 +493,55 @@ export default function ProductsPage() {
                     )}
                   </p>
                 </div>
+
+                {activeCampaigns &&
+                  activeCampaigns.filter((campaign: Campaign) => {
+                    if (campaign.applyToAllProducts) return true;
+                    if (
+                      campaign.products.some(
+                        (p: { id: string }) => p.id === selectedProduct.id,
+                      )
+                    )
+                      return true;
+                    if (
+                      campaign.categories.some(
+                        (c: { id: string }) =>
+                          c.id === selectedProduct.categoryId,
+                      )
+                    )
+                      return true;
+                    return false;
+                  }).length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {activeCampaigns
+                        .filter((campaign: Campaign) => {
+                          if (campaign.applyToAllProducts) return true;
+                          if (
+                            campaign.products.some(
+                              (p: { id: string }) =>
+                                p.id === selectedProduct.id,
+                            )
+                          )
+                            return true;
+                          if (
+                            campaign.categories.some(
+                              (c: { id: string }) =>
+                                c.id === selectedProduct.categoryId,
+                            )
+                          )
+                            return true;
+                          return false;
+                        })
+                        .map((campaign: Campaign) => (
+                          <Badge
+                            key={campaign.id}
+                            variant={getCampaignBadgeVariant(campaign)}
+                          >
+                            {getCampaignBadgeText(campaign)}
+                          </Badge>
+                        ))}
+                    </div>
+                  )}
 
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium">Description</h3>

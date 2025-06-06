@@ -69,6 +69,7 @@ model User {
   reviews        ProductReview[]
   addresses      Address[]
   posts          Post[]
+  campaigns      Campaign[]
 }
 
 model VerificationToken {
@@ -92,6 +93,7 @@ model Product {
   reviews     ProductReview[]
   orderItems  OrderItem[]
   cartItems   CartItem[]
+  campaigns   Campaign[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 }
@@ -108,9 +110,10 @@ model ProductReview {
 }
 
 model Category {
-  id       String    @id @default(cuid())
-  name     String    @unique
-  products Product[]
+  id        String     @id @default(cuid())
+  name      String     @unique
+  products  Product[]
+  campaigns Campaign[]
 }
 
 model Cart {
@@ -191,4 +194,63 @@ enum OrderStatus {
   SHIPPED
   DELIVERED
   CANCELLED
+}
+
+enum CampaignType {
+  PERCENTAGE_DISCOUNT
+  FIXED_AMOUNT_DISCOUNT
+  BUY_ONE_GET_ONE
+  FREE_SHIPPING
+  FLAT_PRICE
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  description String
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+
+  // For percentage and fixed amount discounts
+  discountValue Decimal?
+
+  // For buy one get one
+  buyQuantity Int?
+  getQuantity Int?
+
+  // For flat price
+  flatPrice Decimal?
+
+  // Campaign validity period
+  startDate DateTime
+  endDate   DateTime
+
+  // Minimum order amount to apply the campaign
+  minimumOrderAmount Decimal?
+
+  // Maximum discount amount (for percentage discounts)
+  maximumDiscountAmount Decimal?
+
+  // Campaign can be applied to specific products, categories, or all products
+  products           Product[]
+  categories         Category[]
+  applyToAllProducts Boolean    @default(false)
+
+  // Track usage
+  usageCount Int  @default(0)
+  maxUsage   Int?
+
+  // Created by admin
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "~/components/ui/radio-group";
 import { CreditCard, Apple, Wallet } from "lucide-react";
+import { Badge } from "~/components/ui/badge";
+import { CampaignType } from "@prisma/client";
 
 const addressSchema = z.object({
   line1: z.string().min(2),
@@ -26,6 +28,7 @@ type Address = z.infer<typeof addressSchema>;
 export default function CheckoutPage() {
   const router = useRouter();
   const { data: cart, isLoading } = api.cart.getCart.useQuery();
+  const { data: activeCampaigns } = api.campaign.getActiveCampaigns.useQuery();
   const createOrder = api.order.createOrder.useMutation();
   const [address, setAddress] = useState<Address>({
     line1: "",
@@ -38,9 +41,80 @@ export default function CheckoutPage() {
   const [payment, setPayment] = useState("cod");
   const [submitting, setSubmitting] = useState(false);
 
+  // Function to calculate discounted price based on campaign type
+  const calculateDiscountedPrice = (product: any, campaigns: any[]) => {
+    const applicableCampaigns =
+      campaigns?.filter((campaign) => {
+        if (campaign.applyToAllProducts) return true;
+        if (campaign.products.some((p: { id: string }) => p.id === product.id))
+          return true;
+        if (
+          campaign.categories.some(
+            (c: { id: string }) => c.id === product.categoryId,
+          )
+        )
+          return true;
+        return false;
+      }) || [];
+
+    if (applicableCampaigns.length === 0) return Number(product.price);
+
+    // For simplicity, we'll apply the first applicable campaign
+    const campaign = applicableCampaigns[0];
+    const originalPrice = Number(product.price);
+
+    switch (campaign.type) {
+      case CampaignType.PERCENTAGE_DISCOUNT:
+        const discountAmount = originalPrice * (campaign.discountValue! / 100);
+        const maxDiscount = campaign.maximumDiscountAmount || Infinity;
+        return originalPrice - Math.min(discountAmount, maxDiscount);
+      case CampaignType.FIXED_AMOUNT_DISCOUNT:
+        return originalPrice - campaign.discountValue!;
+      case CampaignType.FLAT_PRICE:
+        return campaign.flatPrice!;
+      case CampaignType.BUY_ONE_GET_ONE:
+        // For BOGO, we'll show the original price but indicate the promotion
+        return originalPrice;
+      case CampaignType.FREE_SHIPPING:
+        // Free shipping doesn't affect product price
+        return originalPrice;
+      default:
+        return originalPrice;
+    }
+  };
+
+  // Function to get campaign badge text
+  const getCampaignBadgeText = (campaign: any) => {
+    switch (campaign.type) {
+      case CampaignType.PERCENTAGE_DISCOUNT:
+        return `${campaign.discountValue}% OFF`;
+      case CampaignType.FIXED_AMOUNT_DISCOUNT:
+        return `$${campaign.discountValue} OFF`;
+      case CampaignType.BUY_ONE_GET_ONE:
+        return `BOGO: Buy ${campaign.buyQuantity} Get ${campaign.getQuantity}`;
+      case CampaignType.FREE_SHIPPING:
+        return "FREE SHIPPING";
+      case CampaignType.FLAT_PRICE:
+        return `FLAT PRICE: $${campaign.flatPrice}`;
+      default:
+        return campaign.name || "SPECIAL OFFER";
+    }
+  };
+
   const subtotal =
     cart?.items.reduce(
-      (sum, item) => sum + Number(item.product.price) * item.quantity,
+      (
+        sum: number,
+        item: {
+          product: { id: string; price: string | number; categoryId: string };
+          quantity: number;
+        },
+      ) => {
+        const price = activeCampaigns
+          ? calculateDiscountedPrice(item.product, activeCampaigns)
+          : Number(item.product.price);
+        return sum + price * item.quantity;
+      },
       0,
     ) ?? 0;
 
@@ -200,29 +274,108 @@ export default function CheckoutPage() {
             <CardContent className="p-4">
               <h2 className="mb-4 text-lg font-semibold">Order Summary</h2>
               <div className="space-y-3">
-                {cart.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 border-b pb-2 last:border-b-0 last:pb-0"
-                  >
-                    <img
-                      src={item.product.image ?? ""}
-                      alt={item.product.name}
-                      className="h-12 w-12 rounded bg-gray-100 object-contain"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">
-                        {item.product.name}
+                {cart.items.map(
+                  (item: {
+                    id: string;
+                    product: {
+                      id: string;
+                      name: string;
+                      image: string | null;
+                      price: string | number;
+                      categoryId: string;
+                    };
+                    quantity: number;
+                  }) => {
+                    const originalPrice = Number(item.product.price);
+                    const discountedPrice = activeCampaigns
+                      ? calculateDiscountedPrice(item.product, activeCampaigns)
+                      : originalPrice;
+                    const hasDiscount = discountedPrice < originalPrice;
+
+                    const applicableCampaigns =
+                      activeCampaigns?.filter(
+                        (campaign: {
+                          applyToAllProducts: boolean;
+                          products: { id: string }[];
+                          categories: { id: string }[];
+                        }) => {
+                          if (campaign.applyToAllProducts) return true;
+                          if (
+                            campaign.products.some(
+                              (p: { id: string }) => p.id === item.product.id,
+                            )
+                          )
+                            return true;
+                          if (
+                            campaign.categories.some(
+                              (c: { id: string }) =>
+                                c.id === item.product.categoryId,
+                            )
+                          )
+                            return true;
+                          return false;
+                        },
+                      ) || [];
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-3 border-b pb-2 last:border-b-0 last:pb-0"
+                      >
+                        <img
+                          src={item.product.image ?? ""}
+                          alt={item.product.name}
+                          className="h-12 w-12 rounded bg-gray-100 object-contain"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {item.product.name}
+                          </div>
+                          <div className="text-muted-foreground text-xs">
+                            x{item.quantity}
+                          </div>
+                          {applicableCampaigns.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {applicableCampaigns.map(
+                                (campaign: {
+                                  id: string;
+                                  type: CampaignType;
+                                  discountValue?: number;
+                                  buyQuantity?: number;
+                                  getQuantity?: number;
+                                  flatPrice?: number;
+                                  name?: string;
+                                }) => (
+                                  <Badge
+                                    key={campaign.id}
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    {getCampaignBadgeText(campaign)}
+                                  </Badge>
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="font-semibold">
+                          {hasDiscount ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-red-600">
+                                ${discountedPrice.toFixed(2)}
+                              </span>
+                              <span className="text-xs text-gray-500 line-through">
+                                ${originalPrice.toFixed(2)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span>${originalPrice.toFixed(2)}</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-muted-foreground text-xs">
-                        x{item.quantity}
-                      </div>
-                    </div>
-                    <div className="font-semibold">
-                      ${Number(item.product.price).toFixed(2)}
-                    </div>
-                  </div>
-                ))}
+                    );
+                  },
+                )}
               </div>
               <div className="mt-4 flex items-center justify-between text-base font-semibold">
                 <span>Subtotal</span>

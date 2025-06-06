@@ -60,27 +60,21 @@ export function Navbar() {
         </Link>
         {userData?.role === "admin" && (
           <>
-            <Link href="/admin/products">
-              <Button variant="ghost" size="sm">
-                Admin Products
-              </Button>
-            </Link>
-            <Link href="/admin/orders">
-              <Button variant="ghost" size="sm">
-                Admin Orders
-              </Button>
-            </Link>
-            <Link href="/admin/users">
-              <Button variant="ghost" size="sm">
-                Admin Users
-              </Button>
-            </Link>
-            <Link href="/admin/reports">
-              <Button variant="ghost" size="sm" className="gap-1">
-                <BarChart3 className="h-4 w-4" />
-                Reports
-              </Button>
-            </Link>
+            <Button variant="ghost" asChild>
+              <Link href="/admin/products">Products</Link>
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link href="/admin/orders">Orders</Link>
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link href="/admin/users">Users</Link>
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link href="/admin/reports">Reports</Link>
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link href="/admin/campaigns">Campaigns</Link>
+            </Button>
           </>
         )}
         {status === "loading" ? null : user ? (
