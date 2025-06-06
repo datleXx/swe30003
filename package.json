@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build --no-lint",
+    "build": "next build --no-lint && prisma migrate deploy && ts-node prisma/seed.ts",
     "build:strict": "next build && prisma migrate deploy && ts-node prisma/seed.ts",
     "check": "next lint && tsc --noEmit",
     "db:generate": "prisma migrate dev",
